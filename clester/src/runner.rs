@@ -76,8 +76,12 @@ pub fn run_step(clash_bin: &Path, env: &TestEnvironment, step: &Step) -> Result<
         // Prevent any system-level clash config from leaking in
         .env_remove("CLASH_CONFIG")
         .env_remove("CLASH_POLICY_FILE")
-        .env_remove("CLASH_CONFIG_DIR")
-        .env_remove("CLASH_STATE_DIR")
+        // Point config/state at the test's ~/.clash/ directory
+        .env("CLASH_CONFIG_DIR", env.home_dir.join(".clash"))
+        .env("CLASH_STATE_DIR", env.home_dir.join(".clash"))
+        // Prevent XDG env vars from leaking into test subprocess
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_STATE_HOME")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -128,8 +132,10 @@ pub fn run_command(clash_bin: &Path, env: &TestEnvironment, command: &str) -> Re
         .current_dir(&env.project_dir)
         .env_remove("CLASH_CONFIG")
         .env_remove("CLASH_POLICY_FILE")
-        .env_remove("CLASH_CONFIG_DIR")
-        .env_remove("CLASH_STATE_DIR")
+        .env("CLASH_CONFIG_DIR", env.home_dir.join(".clash"))
+        .env("CLASH_STATE_DIR", env.home_dir.join(".clash"))
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_STATE_HOME")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
