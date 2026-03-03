@@ -70,6 +70,7 @@ pub fn run() -> Result<()> {
         ("Plugin installed", check_plugin_installed()),
         ("Binary on PATH", check_binary_on_path()),
         ("File permissions", check_file_permissions()),
+        ("Config paths", check_config_paths()),
         ("Sandbox support", check_sandbox_support()),
     ];
 
@@ -372,7 +373,56 @@ fn check_file_permissions() -> CheckResult {
     }
 }
 
-/// Check 6: Does the platform support sandboxing?
+/// Check 6: Detect split-brain config (files at both legacy and XDG paths).
+#[cfg(target_os = "linux")]
+fn check_config_paths() -> CheckResult {
+    let legacy = dirs::home_dir().map(|h| h.join(".clash"));
+    let xdg_config = dirs::config_dir().map(|d| d.join("clash"));
+    let xdg_state = dirs::state_dir().map(|d| d.join("clash"));
+
+    let legacy_exists = legacy.as_ref().map_or(false, |p| p.exists());
+    let xdg_exists = xdg_config.as_ref().map_or(false, |p| p.exists());
+
+    match (legacy_exists, xdg_exists) {
+        (true, true) => CheckResult::Warn(format!(
+            "Config exists at both {} and {} (XDG takes precedence). \
+             Consider removing the legacy directory.",
+            legacy.unwrap().display(),
+            xdg_config.unwrap().display(),
+        )),
+        (true, false) => CheckResult::Pass(format!(
+            "Using legacy path: {}. Run `clash init` to migrate to XDG.",
+            legacy.unwrap().display(),
+        )),
+        (false, true) => {
+            let state_msg = xdg_state
+                .map(|s| format!(", state: {}", s.display()))
+                .unwrap_or_default();
+            CheckResult::Pass(format!(
+                "Using XDG paths: config: {}{}",
+                xdg_config.unwrap().display(),
+                state_msg,
+            ))
+        }
+        (false, false) => CheckResult::Warn(
+            "No config directory found. Run `clash init` to create one.".into(),
+        ),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn check_config_paths() -> CheckResult {
+    match ClashSettings::config_dir() {
+        Ok(dir) if dir.exists() => CheckResult::Pass(format!("Found at {}", dir.display())),
+        Ok(dir) => CheckResult::Warn(format!(
+            "{} does not exist. Run `clash init` to create it.",
+            dir.display()
+        )),
+        Err(e) => CheckResult::Fail(format!("Cannot determine config directory: {}", e)),
+    }
+}
+
+/// Check 7: Does the platform support sandboxing?
 fn check_sandbox_support() -> CheckResult {
     match sandbox::check_support() {
         sandbox::SupportLevel::Full => {
