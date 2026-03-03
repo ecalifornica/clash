@@ -37,7 +37,7 @@ fn is_truthy_disable_value(value: &str) -> bool {
 /// Higher-precedence levels override lower ones: Session > Project > User.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PolicyLevel {
-    /// User-level policy: `~/.clash/policy.sexpr`
+    /// User-level policy: `$XDG_CONFIG_HOME/clash/policy.sexpr`
     User = 0,
     /// Project-level policy: `<project_root>/.clash/policy.sexpr`
     Project = 1,
@@ -174,10 +174,40 @@ pub struct ClashSettings {
 }
 
 impl ClashSettings {
+    /// Resolve the clash config directory (policy files, legacy YAML).
+    ///
+    /// On Linux: `$CLASH_CONFIG_DIR` > `$XDG_CONFIG_HOME/clash` > `~/.config/clash`,
+    /// with transparent fallback to `~/.clash` for existing installs.
+    /// On other platforms: `~/.clash` (unchanged).
+    pub fn config_dir() -> Result<PathBuf> {
+        let env_override = std::env::var("CLASH_CONFIG_DIR").ok();
+        #[cfg(target_os = "linux")]
+        let xdg = dirs::config_dir().map(|d| d.join("clash"));
+        #[cfg(not(target_os = "linux"))]
+        let xdg: Option<PathBuf> = None;
+        let legacy = home_dir().map(|h| h.join(".clash"));
+        resolve_clash_dir(env_override, xdg, legacy)
+    }
+
+    /// Resolve the clash state directory (logs, sessions, history).
+    ///
+    /// On Linux: `$CLASH_STATE_DIR` > `$XDG_STATE_HOME/clash` > `~/.local/state/clash`,
+    /// with transparent fallback to `~/.clash` for existing installs.
+    /// On other platforms: `~/.clash` (unchanged).
+    pub fn state_dir() -> Result<PathBuf> {
+        let env_override = std::env::var("CLASH_STATE_DIR").ok();
+        #[cfg(target_os = "linux")]
+        let xdg = dirs::state_dir().map(|d| d.join("clash"));
+        #[cfg(not(target_os = "linux"))]
+        let xdg: Option<PathBuf> = None;
+        let legacy = home_dir().map(|h| h.join(".clash"));
+        resolve_clash_dir(env_override, xdg, legacy)
+    }
+
+    /// Legacy alias for `config_dir()`. Prefer `config_dir()` or `state_dir()`.
+    #[deprecated(note = "use config_dir() or state_dir() instead")]
     pub fn settings_dir() -> Result<PathBuf> {
-        home_dir()
-            .map(|h| h.join(".clash"))
-            .ok_or_else(|| anyhow::anyhow!("$HOME is not set; cannot determine settings directory"))
+        Self::config_dir()
     }
 
     /// Returns the user-level policy file path.
@@ -187,12 +217,12 @@ impl ClashSettings {
         if let Ok(p) = std::env::var("CLASH_POLICY_FILE") {
             return Ok(PathBuf::from(p));
         }
-        Self::settings_dir().map(|d| d.join("policy.sexpr"))
+        Self::config_dir().map(|d| d.join("policy.sexpr"))
     }
 
     /// Returns the policy file path for a specific level.
     ///
-    /// For `Session`, reads the active session ID from `~/.clash/active_session`.
+    /// For `Session`, reads the active session ID from the state directory's `active_session`.
     pub fn policy_file_for_level(level: PolicyLevel) -> Result<PathBuf> {
         match level {
             PolicyLevel::User => Self::policy_file(),
@@ -214,10 +244,10 @@ impl ClashSettings {
 
     /// Path to the active-session marker file.
     fn active_session_file() -> Result<PathBuf> {
-        Self::settings_dir().map(|d| d.join("active_session"))
+        Self::state_dir().map(|d| d.join("active_session"))
     }
 
-    /// Read the active session ID from `~/.clash/active_session`.
+    /// Read the active session ID from the state directory's `active_session`.
     pub fn active_session_id() -> Result<String> {
         let path = Self::active_session_file()?;
         let id = std::fs::read_to_string(&path)
@@ -236,7 +266,7 @@ impl ClashSettings {
         Ok(id)
     }
 
-    /// Write the active session ID to `~/.clash/active_session`.
+    /// Write the active session ID to the state directory's `active_session`.
     pub fn set_active_session(session_id: &str) -> Result<()> {
         let path = Self::active_session_file()?;
         std::fs::create_dir_all(path.parent().unwrap())?;
@@ -342,7 +372,7 @@ impl ClashSettings {
 
     /// Path to a legacy YAML policy file (pre-sexp migration).
     pub fn legacy_policy_file() -> Result<PathBuf> {
-        Self::settings_dir().map(|d| d.join("policy.yaml"))
+        Self::config_dir().map(|d| d.join("policy.yaml"))
     }
 
     /// Return the policy parse/compile error, if any.
@@ -497,7 +527,7 @@ impl ClashSettings {
 
     /// Load notification and audit config from a companion policy.yaml if it exists.
     fn load_notification_audit_config(&mut self) {
-        let yaml_path = match Self::settings_dir() {
+        let yaml_path = match Self::config_dir() {
             Ok(d) => d.join("policy.yaml"),
             Err(_) => return,
         };
@@ -513,7 +543,7 @@ impl ClashSettings {
     ///
     /// Loads user and project policies only. Session-level policies are excluded
     /// because CLI commands run outside of an active Claude Code session — the
-    /// `~/.clash/active_session` marker may be stale from a previous session.
+    /// The `active_session` marker may be stale from a previous session.
     ///
     /// Use `load_or_create_with_session()` with an explicit session ID (from hook
     /// input) to include session-level policies.
@@ -721,6 +751,41 @@ fn parse_audit_config(yaml_str: &str) -> AuditConfig {
         Ok(raw) => raw.audit.unwrap_or_default(),
         Err(_) => AuditConfig::default(),
     }
+}
+
+/// Resolve a clash directory path from explicit inputs.
+///
+/// Used by both `config_dir()` and `state_dir()` with different inputs.
+/// Extracted as a pure function for testability — avoids env var races in
+/// parallel tests.
+///
+/// Resolution order:
+/// 1. `env_override` — explicit env var (`CLASH_CONFIG_DIR` / `CLASH_STATE_DIR`)
+/// 2. `xdg_path` — XDG-compliant path (Linux only; `None` on other platforms)
+///    - If the XDG path doesn't exist on disk but `legacy_path` does, use legacy
+///      (transparent fallback for existing installs)
+///    - Otherwise use XDG (new installs or already-migrated)
+/// 3. `legacy_path` — `~/.clash` (non-Linux fallback)
+fn resolve_clash_dir(
+    env_override: Option<String>,
+    xdg_path: Option<PathBuf>,
+    legacy_path: Option<PathBuf>,
+) -> Result<PathBuf> {
+    if let Some(dir) = env_override {
+        return Ok(PathBuf::from(dir));
+    }
+
+    if let Some(ref xdg) = xdg_path {
+        let legacy_exists = legacy_path.as_ref().map_or(false, |l| l.exists());
+        if !xdg.exists() && legacy_exists {
+            return legacy_path
+                .ok_or_else(|| anyhow::anyhow!("$HOME is not set"));
+        }
+        return Ok(xdg.clone());
+    }
+
+    legacy_path
+        .ok_or_else(|| anyhow::anyhow!("$HOME is not set; cannot determine settings directory"))
 }
 
 /// Find the nearest ancestor directory containing the given name.
@@ -1072,5 +1137,74 @@ mod test {
         assert!(is_truthy_disable_value("true"));
         assert!(is_truthy_disable_value("yes"));
         assert!(is_truthy_disable_value("anything"));
+    }
+
+    // --- resolve_clash_dir tests ---
+    //
+    // These test the pure resolution function directly with explicit inputs,
+    // avoiding env var mutation races in parallel tests.
+
+    #[test]
+    fn resolve_clash_dir_env_override_wins() {
+        let result = resolve_clash_dir(
+            Some("/custom/dir".into()),
+            Some(PathBuf::from("/xdg/clash")),
+            Some(PathBuf::from("/home/test/.clash")),
+        )
+        .unwrap();
+        assert_eq!(result, PathBuf::from("/custom/dir"));
+    }
+
+    #[test]
+    fn resolve_clash_dir_xdg_default_for_new_install() {
+        // Neither XDG nor legacy path exists on disk — XDG wins
+        let result = resolve_clash_dir(
+            None,
+            Some(PathBuf::from("/tmp/nonexistent-xdg/clash")),
+            Some(PathBuf::from("/tmp/nonexistent-legacy/.clash")),
+        )
+        .unwrap();
+        assert_eq!(result, PathBuf::from("/tmp/nonexistent-xdg/clash"));
+    }
+
+    #[test]
+    fn resolve_clash_dir_legacy_fallback_when_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join(".clash");
+        std::fs::create_dir_all(&legacy).unwrap();
+        let xdg = dir.path().join(".config/clash"); // doesn't exist
+
+        let result = resolve_clash_dir(None, Some(xdg), Some(legacy.clone())).unwrap();
+        assert_eq!(result, legacy);
+    }
+
+    #[test]
+    fn resolve_clash_dir_xdg_wins_when_both_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join(".clash");
+        let xdg = dir.path().join(".config/clash");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&xdg).unwrap();
+
+        let result = resolve_clash_dir(None, Some(xdg.clone()), Some(legacy)).unwrap();
+        assert_eq!(result, xdg);
+    }
+
+    #[test]
+    fn resolve_clash_dir_no_xdg_uses_legacy() {
+        // Non-Linux case: xdg_path is None
+        let result = resolve_clash_dir(
+            None,
+            None,
+            Some(PathBuf::from("/home/test/.clash")),
+        )
+        .unwrap();
+        assert_eq!(result, PathBuf::from("/home/test/.clash"));
+    }
+
+    #[test]
+    fn resolve_clash_dir_no_home_errors() {
+        let result = resolve_clash_dir(None, None, None);
+        assert!(result.is_err());
     }
 }
