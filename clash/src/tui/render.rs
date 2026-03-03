@@ -887,7 +887,7 @@ pub(crate) fn context_hints(app: &App) -> Vec<(&'static str, &'static str)> {
                     }
                     hints.push(("Tab", "effect"));
                     hints.push(("e", "edit"));
-                    hints.push(("d", "delete"));
+                    hints.push(("x", "delete"));
                 }
                 TreeNodeKind::Domain(_) | TreeNodeKind::PolicyBlock { .. } => {
                     if row.has_children {
@@ -899,7 +899,7 @@ pub(crate) fn context_hints(app: &App) -> Vec<(&'static str, &'static str)> {
                         hints.push(("z/Z", "fold"));
                     }
                     hints.push(("Tab", "effect"));
-                    hints.push(("d", "delete"));
+                    hints.push(("x", "delete"));
                 }
                 TreeNodeKind::Leaf { .. } => {
                     if row.has_children {
@@ -912,13 +912,13 @@ pub(crate) fn context_hints(app: &App) -> Vec<(&'static str, &'static str)> {
                     hints.push(("Tab", "effect"));
                     hints.push(("e", "edit"));
                     hints.push(("E", "edit rule"));
-                    hints.push(("d", "delete"));
+                    hints.push(("x", "delete"));
                 }
                 TreeNodeKind::SandboxLeaf { .. } => {
                     hints.push(("Tab", "effect"));
                     hints.push(("e", "edit"));
                     hints.push(("E", "edit rule"));
-                    hints.push(("d", "delete"));
+                    hints.push(("x", "delete"));
                 }
                 TreeNodeKind::SandboxGroup => {
                     if row.has_children {
@@ -1071,15 +1071,16 @@ fn render_help_overlay(f: &mut Frame, area: Rect) {
         help_line(bold, "  Space       ", "Toggle expand/collapse"),
         help_line(bold, "  g           ", "Jump to top"),
         help_line(bold, "  G           ", "Jump to bottom"),
-        help_line(bold, "  PgUp/PgDn   ", "Page up/down"),
+        help_line(bold, "  u / PgUp    ", "Page up"),
+        help_line(bold, "  d / PgDn    ", "Page down"),
         Line::from(""),
         help_line(bold, "  Tab         ", "Select effect (dropdown)"),
         help_line(bold, "  e           ", "Edit node value inline"),
         help_line(bold, "  E           ", "Edit full rule s-expr"),
         help_line(bold, "  a           ", "Add a new rule"),
-        help_line(bold, "  d           ", "Delete rule at cursor"),
+        help_line(bold, "  x           ", "Delete rule at cursor"),
         help_line(bold, "  w           ", "Save all changes"),
-        help_line(bold, "  u           ", "Undo last edit"),
+        help_line(bold, "  Ctrl+z      ", "Undo last edit"),
         help_line(bold, "  Ctrl+r      ", "Redo"),
         Line::from(""),
         help_line(bold, "  z           ", "Fold/unfold children"),
@@ -1097,11 +1098,19 @@ fn render_help_overlay(f: &mut Frame, area: Rect) {
     ];
 
     let scroll = Cell::new(0);
-    render_scrollable_overlay(f, area, " Keyboard Shortcuts ", tui_style::DOMAIN, 50, lines, OverlayScroll {
-        cell: &scroll,
-        show_indicators: false,
-        max_scroll_out: None,
-    });
+    render_scrollable_overlay(
+        f,
+        area,
+        " Keyboard Shortcuts ",
+        tui_style::DOMAIN,
+        50,
+        lines,
+        OverlayScroll {
+            cell: &scroll,
+            show_indicators: false,
+            max_scroll_out: None,
+        },
+    );
 }
 
 fn help_line<'a>(key_style: Style, key: &'a str, desc: &'a str) -> Line<'a> {
@@ -1138,7 +1147,8 @@ fn render_confirm_overlay(f: &mut Frame, area: Rect, action: &ConfirmAction) {
         ),
         ConfirmAction::QuitUnsaved => (
             " Unsaved Changes ",
-            "You have unsaved changes.\n\nQuit without saving?\n\ny/n".to_string(),
+            "You have unsaved changes.\n\ns = save & quit\ny = quit without saving\nn = cancel"
+                .to_string(),
         ),
     };
 
@@ -1187,7 +1197,12 @@ fn render_save_diff_overlay(f: &mut Frame, diff: &SaveDiff, area: Rect) {
 
     // Reserve bottom row for the fixed hint line.
     let hint_row = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
-    let content_area = Rect::new(inner.x, inner.y, inner.width, inner.height.saturating_sub(1));
+    let content_area = Rect::new(
+        inner.x,
+        inner.y,
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
 
     let total = lines.len();
     let visible = content_area.height as usize;
@@ -1238,10 +1253,7 @@ pub(crate) fn build_save_diff_lines(hunks: &[DiffHunk]) -> Vec<Line<'static>> {
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                hunk.path.display().to_string(),
-                tui_style::DIM,
-            ),
+            Span::styled(hunk.path.display().to_string(), tui_style::DIM),
         ]));
         for dl in &hunk.lines {
             let (prefix, text, style) = match dl {
@@ -1954,7 +1966,7 @@ mod tests {
         let keys: Vec<&str> = hints.iter().map(|(k, _)| *k).collect();
         assert!(keys.contains(&"Tab"), "leaf should have Tab hint");
         assert!(keys.contains(&"e"), "leaf should have e hint");
-        assert!(keys.contains(&"d"), "leaf should have d hint");
+        assert!(keys.contains(&"x"), "leaf should have x hint");
     }
 
     #[test]
@@ -1988,7 +2000,7 @@ mod tests {
         let keys: Vec<&str> = hints.iter().map(|(k, _)| *k).collect();
         assert!(keys.contains(&"Tab"), "sandbox leaf should have Tab hint");
         assert!(keys.contains(&"e"), "sandbox leaf should have e hint");
-        assert!(keys.contains(&"d"), "sandbox leaf should have d hint");
+        assert!(keys.contains(&"x"), "sandbox leaf should have x hint");
     }
 
     #[test]
@@ -2160,10 +2172,7 @@ mod tests {
             "should have file path: {text}"
         );
         assert!(text.contains("git"), "should contain added line: {text}");
-        assert!(
-            text.contains("rm"),
-            "should contain removed line: {text}"
-        );
+        assert!(text.contains("rm"), "should contain removed line: {text}");
     }
 
     // -----------------------------------------------------------------------
@@ -2546,10 +2555,6 @@ mod tests {
         } else {
             panic!("expected ConfirmSave");
         };
-        assert_eq!(
-            after_k,
-            max_scroll - 1,
-            "k should scroll up from max"
-        );
+        assert_eq!(after_k, max_scroll - 1, "k should scroll up from max");
     }
 }

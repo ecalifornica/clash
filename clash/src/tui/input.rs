@@ -92,11 +92,15 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> InputResult {
         // Toggle expand
         KeyCode::Char(' ') => app.toggle_expand(),
 
+        // Page up/down
+        KeyCode::Char('u') => app.page_up(),
+        KeyCode::Char('d') => app.page_down(),
+
         // Editing
         KeyCode::Tab => app.start_select_effect(),
-        KeyCode::Char('d') => app.start_delete(),
+        KeyCode::Char('x') => app.start_delete(),
         KeyCode::Char('w') => app.save_all(),
-        KeyCode::Char('u') => app.undo(),
+        KeyCode::Char('z') if key.modifiers.contains(KeyModifiers::CONTROL) => app.undo(),
         KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => app.redo(),
 
         // Fold level / subtree / all
@@ -154,6 +158,14 @@ fn handle_confirm(app: &mut App, key: KeyEvent) -> InputResult {
                 _ => InputResult::Continue,
             }
         }
+        // Save and quit — only meaningful for QuitUnsaved
+        KeyCode::Char('s') | KeyCode::Char('S')
+            if matches!(app.mode, Mode::Confirm(ConfirmAction::QuitUnsaved)) =>
+        {
+            app.mode = Mode::Normal;
+            app.save_all();
+            InputResult::Quit
+        }
         KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
             app.mode = Mode::Normal;
             app.status_message = None;
@@ -181,7 +193,11 @@ fn handle_confirm_save(app: &mut App, key: KeyEvent) -> InputResult {
         }
         KeyCode::Char('j') | KeyCode::Down => {
             if let Mode::ConfirmSave(diff) = &app.mode {
-                let new = diff.scroll.get().saturating_add(1).min(diff.max_scroll.get());
+                let new = diff
+                    .scroll
+                    .get()
+                    .saturating_add(1)
+                    .min(diff.max_scroll.get());
                 diff.scroll.set(new);
             }
             InputResult::Continue
@@ -194,7 +210,11 @@ fn handle_confirm_save(app: &mut App, key: KeyEvent) -> InputResult {
         }
         KeyCode::PageDown | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             if let Mode::ConfirmSave(diff) = &app.mode {
-                let new = diff.scroll.get().saturating_add(10).min(diff.max_scroll.get());
+                let new = diff
+                    .scroll
+                    .get()
+                    .saturating_add(10)
+                    .min(diff.max_scroll.get());
                 diff.scroll.set(new);
             }
             InputResult::Continue
@@ -303,7 +323,7 @@ fn selector_key(key: KeyEvent, index: &mut usize, count: usize) -> StepAction {
             }
             StepAction::None
         }
-        KeyCode::BackTab => StepAction::Retreat,
+        KeyCode::BackTab | KeyCode::Up | KeyCode::Backspace => StepAction::Retreat,
         KeyCode::Enter => StepAction::Advance,
         KeyCode::Esc => StepAction::Cancel,
         _ => StepAction::None,
@@ -312,8 +332,8 @@ fn selector_key(key: KeyEvent, index: &mut usize, count: usize) -> StepAction {
 
 /// Handle key for a text input step.
 fn text_input_key(key: KeyEvent, form: &mut super::app::AddRuleForm) -> StepAction {
-    // BackTab always goes back
-    if key.code == KeyCode::BackTab {
+    // BackTab / Up always goes back
+    if matches!(key.code, KeyCode::BackTab | KeyCode::Up) {
         return StepAction::Retreat;
     }
     // Backspace on empty input goes back
