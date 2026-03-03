@@ -46,7 +46,7 @@ clash policy allow '(exec "git" *)'
 
 By default, `clash edit` and `clash policy` commands target the project-level policy if one exists, otherwise the user-level policy. To target a specific scope, add `--scope`:
 
-- `--scope user` — edit `~/.clash/policy.sexpr`, applies everywhere
+- `--scope user` — edit `~/.config/clash/policy.sexpr`, applies everywhere
 - `--scope project` — edit `<project>/.clash/policy.sexpr`, persists across sessions
 - `--scope session` — edit the temporary session policy, lasts only for the current Claude Code session
 

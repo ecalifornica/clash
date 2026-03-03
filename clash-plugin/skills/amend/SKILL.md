@@ -52,7 +52,7 @@ Rules are either:
 ## Scope selection
 
 - `--scope project` — saved in `<project>/.clash/policy.sexpr`, persists across sessions
-- `--scope user` — saved in `~/.clash/policy.sexpr`, applies everywhere
+- `--scope user` — saved in `~/.config/clash/policy.sexpr`, applies everywhere
 - `--scope session` — temporary, lasts only for the current Claude Code session
 
 ## Safety guidelines

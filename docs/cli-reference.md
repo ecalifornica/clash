@@ -38,7 +38,7 @@ clash init [SCOPE] [OPTIONS]
 
 **What it does:**
 
-- **`clash init user`** — Creates `~/.clash/policy.sexpr` with a safe default policy, installs the Claude Code plugin, configures Claude Code so clash is the sole permission handler (`bypassPermissions: true` and `permissions.defaultMode: "bypassPermissions"`), installs the clash status line, and drops into the policy shell.
+- **`clash init user`** — Creates `~/.config/clash/policy.sexpr` with a safe default policy, installs the Claude Code plugin, configures Claude Code so clash is the sole permission handler (`bypassPermissions: true` and `permissions.defaultMode: "bypassPermissions"`), installs the clash status line, and drops into the policy shell.
 - **`clash init project`** — Creates `.clash/policy.sexpr` in the current repository root with a minimal deny-all policy.
 
 Only one scope is initialized per invocation. When no scope is given, clash explains both options and asks you to choose.
@@ -373,7 +373,7 @@ clash launch [OPTIONS] [ARGS]...
 
 | Flag | Description |
 |------|-------------|
-| `--policy <POLICY>` | Path to policy file (default: `~/.clash/policy.sexpr`) |
+| `--policy <POLICY>` | Path to policy file (default: `~/.config/clash/policy.sexpr`) |
 
 **Arguments:**
 
@@ -492,7 +492,7 @@ When no `--file` is given, validates all active policy levels (user, project) an
 clash policy validate
 
 # Validate a specific file
-clash policy validate --file ~/.clash/policy.sexpr
+clash policy validate --file ~/.config/clash/policy.sexpr
 
 # JSON output for scripting
 clash policy validate --json
@@ -754,7 +754,9 @@ claude plugin marketplace remove clash
 clash statusline uninstall
 
 # 5. (Optional) Clean up configuration and logs
-rm -rf ~/.clash       # user-level policy and logs
+rm -rf ~/.config/clash  # user-level policy (XDG)
+rm -rf ~/.local/state/clash  # logs and state (XDG)
+rm -rf ~/.clash         # legacy config (if present)
 rm -rf .clash         # project-level policy (per repo)
 ```
 

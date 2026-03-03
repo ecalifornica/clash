@@ -5,10 +5,10 @@ description: View recent clash permission decisions from the audit log
 Check if the audit log exists:
 
 ```bash
-test -f ~/.clash/audit.jsonl && echo "exists" || echo "missing"
+test -f ~/.local/state/clash/audit.jsonl && echo "exists" || echo "missing"
 ```
 
-If the file is missing, tell the user audit logging is not enabled. They can enable it by adding this to `~/.clash/policy.yaml`:
+If the file is missing, tell the user audit logging is not enabled. They can enable it by adding this to `~/.config/clash/policy.yaml`:
 
 ```yaml
 audit:
@@ -18,7 +18,7 @@ audit:
 If the file exists, read the last 20 entries:
 
 ```bash
-tail -20 ~/.clash/audit.jsonl
+tail -20 ~/.local/state/clash/audit.jsonl
 ```
 
 Parse the JSON Lines output and present a readable summary table. For each entry:
@@ -30,4 +30,4 @@ Parse the JSON Lines output and present a readable summary table. For each entry
 5. **Reason** — show `reason` if present
 6. **Rules** — show matched/skipped rule counts if nonzero
 
-If the user asks to filter by tool name, decision type, or time range, use `grep` or `jq` on `~/.clash/audit.jsonl` to narrow results before presenting them.
+If the user asks to filter by tool name, decision type, or time range, use `grep` or `jq` on `~/.local/state/clash/audit.jsonl` to narrow results before presenting them.

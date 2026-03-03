@@ -145,7 +145,7 @@ pub enum PolicyCmd {
 pub enum Commands {
     /// Initialize a new clash policy with a safe default configuration
     ///
-    /// Pass "user" to create a global policy (~/.clash/policy.sexpr) or
+    /// Pass "user" to create a global policy (~/.config/clash/policy.sexpr) or
     /// "project" to create a repo-scoped policy (.clash/policy.sexpr).
     /// When no scope is given, an interactive prompt lets you choose.
     Init {
@@ -268,7 +268,7 @@ pub enum Commands {
     /// Launch Claude Code with clash managing hooks and sandbox enforcement
     #[command(hide = true)]
     Launch {
-        /// Path to policy file (default: ~/.clash/policy.sexpr)
+        /// Path to policy file (default: ~/.config/clash/policy.sexpr)
         #[arg(long)]
         policy: Option<String>,
 

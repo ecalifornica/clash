@@ -44,7 +44,7 @@ Policies use s-expression syntax with three effects and four capability domains:
 ```
 
 **Policy layers** (higher shadows lower): Session > Project > User
-- User: `~/.clash/policy.sexpr`
+- User: `~/.config/clash/policy.sexpr`
 - Project: `<project>/.clash/policy.sexpr`
 - Session: created via `clash edit --session`
 

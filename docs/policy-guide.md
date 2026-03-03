@@ -26,7 +26,7 @@ This policy allows git commands (except push), file reads under the current dire
 
 | Path | Scope |
 |------|-------|
-| `~/.clash/policy` | User-level (applies to all projects) |
+| `~/.config/clash/policy` | User-level (applies to all projects) |
 
 Clash reads the policy on every hook invocation, so changes take effect immediately.
 

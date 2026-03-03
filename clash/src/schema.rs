@@ -221,7 +221,7 @@ fn audit_section() -> SchemaSection {
                 key: "path",
                 type_name: "string",
                 description: "Path to the audit log file",
-                default: Some(serde_json::json!("~/.clash/audit.jsonl")),
+                default: Some(serde_json::json!("~/.local/state/clash/audit.jsonl")),
                 values: None,
                 required: false,
                 fields: None,

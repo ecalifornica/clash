@@ -20,6 +20,8 @@ dev *ARGS:
     PATH="$tmpdir:$PATH" claude --plugin-dir ./clash-plugin --debug-file /tmp/clash-debug --allow-dangerously-skip-permissions {{ARGS}}
 
 clean-configs:
+    -rm -rf ~/.config/clash
+    -rm -rf ~/.local/state/clash
     -rm -rf ~/.clash
     -rm -rf .clash
 

@@ -93,7 +93,7 @@ Clash supports three policy levels, each automatically included and evaluated in
 
 | Level | Location | Purpose |
 |-------|----------|---------|
-| **User** | `~/.clash/policy.sexpr` | Your personal defaults across all projects |
+| **User** | `~/.config/clash/policy.sexpr` | Your personal defaults across all projects |
 | **Project** | `<project>/.clash/policy.sexpr` | Shared rules for a specific repository |
 | **Session** | Created via `--scope session` | Temporary overrides for the current session |
 
@@ -102,7 +102,7 @@ Clash supports three policy levels, each automatically included and evaluated in
 ### Example
 
 ```lisp
-; ~/.clash/policy.sexpr (user level)
+; ~/.config/clash/policy.sexpr (user level)
 (default ask "main")
 
 (policy "main"
@@ -304,7 +304,9 @@ claude plugin marketplace remove clash
 clash statusline uninstall
 
 # 5. (Optional) Clean up configuration and logs
-rm -rf ~/.clash       # user-level policy and logs
+rm -rf ~/.config/clash  # user-level policy (XDG)
+rm -rf ~/.local/state/clash  # logs and state (XDG)
+rm -rf ~/.clash         # legacy config (if present)
 rm -rf .clash         # project-level policy (per repo)
 ```
 
