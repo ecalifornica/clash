@@ -1098,12 +1098,35 @@ impl ShellSession {
             .collect()
     }
 
+    /// Extract rule entries (id + description) from all policy blocks.
+    fn extract_rule_entries(&self) -> Vec<crate::shell_complete::RuleEntry> {
+        use crate::shell_complete::RuleEntry;
+        let Ok(top_levels) = crate::policy::parse::parse(&self.source) else {
+            return vec![];
+        };
+        let mut entries = Vec::new();
+        for tl in &top_levels {
+            if let TopLevel::Policy { name, body } = tl {
+                for item in body {
+                    if let PolicyItem::Rule(r) = item {
+                        entries.push(RuleEntry {
+                            id: r.id(),
+                            description: describe_rule(r),
+                            policy: name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        entries
+    }
+
     /// Run interactive REPL mode with reedline (line editing, history, tab completion).
     pub fn run_interactive(&mut self) -> Result<()> {
-        use crate::shell_complete::{CompletionState, ShellCompleter, ShellPrompt};
+        use crate::shell_complete::{CompletionState, ShellCompleter, ShellHinter, ShellPrompt};
         use reedline::{
-            ColumnarMenu, DefaultHinter, Emacs, FileBackedHistory, KeyCode, KeyModifiers,
-            MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
+            ColumnarMenu, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
+            ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
         };
 
         // Welcome banner
@@ -1124,6 +1147,7 @@ impl ShellSession {
         let state = Arc::new(Mutex::new(CompletionState {
             policy_names: self.extract_policy_names(),
             current_policy: self.current_policy.clone(),
+            rule_entries: self.extract_rule_entries(),
         }));
 
         let completer = Box::new(ShellCompleter::new(Arc::clone(&state)));
@@ -1161,11 +1185,8 @@ impl ShellSession {
         let history: Option<Box<FileBackedHistory>> =
             history_path.and_then(|p| FileBackedHistory::with_file(500, p).ok().map(Box::new));
 
-        // Hinter (fish-style ghost text from history)
-        let hinter = Box::new(
-            DefaultHinter::default()
-                .with_style(nu_ansi_term::Style::new().fg(nu_ansi_term::Color::DarkGray)),
-        );
+        // Hinter (rule-ID-aware ghost text, with history fallback)
+        let hinter = Box::new(ShellHinter::new(Arc::clone(&state)));
 
         // Build reedline
         let mut line_editor = Reedline::create()
@@ -1206,6 +1227,7 @@ impl ShellSession {
                     if let Ok(mut s) = state.lock() {
                         s.policy_names = self.extract_policy_names();
                         s.current_policy = self.current_policy.clone();
+                        s.rule_entries = self.extract_rule_entries();
                     }
 
                     match output {

@@ -8,16 +8,25 @@
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
-use reedline::{Completer, Prompt, Span, Suggestion};
+use reedline::{Completer, DefaultHinter, Hinter, History, Prompt, Span, Suggestion};
 
 // ---------------------------------------------------------------------------
 // Shared state
 // ---------------------------------------------------------------------------
 
-/// Mutable state shared between the REPL loop and the completer.
+/// A rule available for completion (populated from parsed policy).
+#[derive(Clone)]
+pub struct RuleEntry {
+    pub id: String,
+    pub description: String,
+    pub policy: String,
+}
+
+/// Mutable state shared between the REPL loop and the completer/hinter.
 pub struct CompletionState {
     pub policy_names: Vec<String>,
     pub current_policy: String,
+    pub rule_entries: Vec<RuleEntry>,
 }
 
 pub type SharedState = Arc<Mutex<CompletionState>>;
@@ -465,7 +474,8 @@ impl ShellCompleter {
         };
 
         match verb {
-            "add" | "remove" => self.complete_add_remove(rest, pos),
+            "add" => self.complete_add_remove(rest, pos),
+            "remove" => self.complete_remove(rest, pos),
             "default" => self.complete_default(rest, pos),
             "use" | "create" | "rules" => self.complete_policy_name(rest, pos),
             "test" => Self::complete_test(rest, pos),
@@ -521,6 +531,131 @@ impl ShellCompleter {
 
         // Has s-expression content
         self.complete_sexpr_context(rest, pos)
+    }
+
+    /// Completions for `remove` — rule IDs, policy names, and s-expression builder.
+    fn complete_remove(&self, rest: &str, pos: usize) -> Vec<Suggestion> {
+        if rest.is_empty() {
+            let mut suggestions =
+                vec![self.suggestion("(", "Start rule: (effect (domain ...))", pos, pos, false)];
+            if let Ok(state) = self.state.lock() {
+                for entry in &state.rule_entries {
+                    if entry.policy == state.current_policy {
+                        suggestions.push(self.suggestion(
+                            &entry.id,
+                            &entry.description,
+                            pos,
+                            pos,
+                            true,
+                        ));
+                    }
+                }
+                for name in &state.policy_names {
+                    suggestions.push(self.suggestion(
+                        name,
+                        "Target a specific policy block",
+                        pos,
+                        pos,
+                        true,
+                    ));
+                }
+            }
+            return suggestions;
+        }
+
+        // S-expr path
+        if rest.starts_with('(') {
+            return self.complete_sexpr_context(rest, pos);
+        }
+
+        // Check for space — could be "policy rest" or "policy id"
+        if let Some(space_idx) = rest.find(|c: char| c.is_whitespace()) {
+            let first_word = &rest[..space_idx];
+            let after = rest[space_idx..].trim_start();
+
+            let is_policy = self
+                .state
+                .lock()
+                .ok()
+                .map(|s| s.policy_names.contains(&first_word.to_string()))
+                .unwrap_or(false);
+
+            if is_policy {
+                if after.is_empty() {
+                    let mut suggestions = vec![self.suggestion(
+                        "(",
+                        "Start rule: (effect (domain ...))",
+                        pos,
+                        pos,
+                        false,
+                    )];
+                    if let Ok(state) = self.state.lock() {
+                        for entry in &state.rule_entries {
+                            if entry.policy == first_word {
+                                suggestions.push(self.suggestion(
+                                    &entry.id,
+                                    &entry.description,
+                                    pos,
+                                    pos,
+                                    true,
+                                ));
+                            }
+                        }
+                    }
+                    return suggestions;
+                }
+                if after.starts_with('(') {
+                    return self.complete_sexpr_context(after, pos);
+                }
+                // Partial rule ID after policy name
+                if !after.contains(char::is_whitespace) {
+                    let mut suggestions = Vec::new();
+                    if let Ok(state) = self.state.lock() {
+                        for entry in &state.rule_entries {
+                            if entry.policy == first_word && entry.id.starts_with(after) {
+                                suggestions.push(self.suggestion(
+                                    &entry.id,
+                                    &entry.description,
+                                    pos - after.len(),
+                                    pos,
+                                    true,
+                                ));
+                            }
+                        }
+                    }
+                    return suggestions;
+                }
+            }
+            return vec![];
+        }
+
+        // Single word, no spaces — partial rule ID or policy name
+        let mut suggestions = Vec::new();
+        if let Ok(state) = self.state.lock() {
+            for entry in &state.rule_entries {
+                if entry.policy == state.current_policy && entry.id.starts_with(rest) {
+                    suggestions.push(self.suggestion(
+                        &entry.id,
+                        &entry.description,
+                        pos - rest.len(),
+                        pos,
+                        true,
+                    ));
+                }
+            }
+            for name in &state.policy_names {
+                if name.starts_with(rest) {
+                    suggestions.push(self.suggestion(
+                        name,
+                        "Target a specific policy block",
+                        pos - rest.len(),
+                        pos,
+                        true,
+                    ));
+                }
+            }
+        }
+        suggestions
     }
 
     /// Complete inside an s-expression using grammar-aware context analysis.
@@ -844,6 +979,137 @@ impl Prompt for ShellPrompt {
 }
 
 // ---------------------------------------------------------------------------
+// ShellHinter — rule-ID-aware ghost text
+// ---------------------------------------------------------------------------
+
+/// Hinter that shows rule ID completions as ghost text for `remove` commands,
+/// falling back to history-based hinting for everything else.
+pub struct ShellHinter {
+    state: SharedState,
+    history_hinter: DefaultHinter,
+    /// The insertable portion of the current hint (just the ID remainder).
+    current_completion: String,
+}
+
+impl ShellHinter {
+    pub fn new(state: SharedState) -> Self {
+        let style = nu_ansi_term::Style::new().fg(nu_ansi_term::Color::DarkGray);
+        Self {
+            state,
+            history_hinter: DefaultHinter::default().with_style(style),
+            current_completion: String::new(),
+        }
+    }
+
+    /// Try to produce a hint for a `remove` command with a partial rule ID.
+    fn try_rule_id_hint(&mut self, line: &str, pos: usize, use_ansi_coloring: bool) -> Option<String> {
+        let prefix = &line[..pos];
+        let trimmed = prefix.trim_start();
+
+        // Must start with "remove" followed by whitespace
+        let rest = trimmed.strip_prefix("remove")?;
+        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+            return None;
+        }
+        let rest = rest.trim_start();
+
+        // Don't hint for s-expr or shortcut syntax
+        if rest.starts_with('(') || rest.contains(':') {
+            return None;
+        }
+
+        let state = self.state.lock().ok()?;
+
+        // Determine target policy and partial ID text
+        let (target_policy, partial) = if let Some(space_idx) = rest.find(|c: char| c.is_whitespace()) {
+            let first = &rest[..space_idx];
+            let after = rest[space_idx..].trim_start();
+            if state.policy_names.contains(&first.to_string()) {
+                (first.to_string(), after)
+            } else {
+                return None;
+            }
+        } else {
+            (state.current_policy.clone(), rest)
+        };
+
+        // Need a non-empty hex prefix
+        if partial.is_empty() || !partial.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+
+        // Find uniquely matching rule
+        let matches: Vec<&RuleEntry> = state
+            .rule_entries
+            .iter()
+            .filter(|e| e.policy == target_policy && e.id.starts_with(partial))
+            .collect();
+
+        if matches.len() != 1 {
+            return None;
+        }
+
+        let entry = &matches[0];
+        let style = nu_ansi_term::Style::new().fg(nu_ansi_term::Color::DarkGray);
+
+        if partial.len() >= 7 {
+            // Full ID typed — show just the description
+            self.current_completion = String::new();
+            let hint_text = format!("  — {}", entry.description);
+            Some(if use_ansi_coloring {
+                style.paint(&hint_text).to_string()
+            } else {
+                hint_text
+            })
+        } else {
+            // Partial ID — show remainder + description
+            let id_remainder = &entry.id[partial.len()..];
+            self.current_completion = id_remainder.to_string();
+            let hint_text = format!("{}  — {}", id_remainder, entry.description);
+            Some(if use_ansi_coloring {
+                style.paint(&hint_text).to_string()
+            } else {
+                hint_text
+            })
+        }
+    }
+}
+
+impl Hinter for ShellHinter {
+    fn handle(
+        &mut self,
+        line: &str,
+        pos: usize,
+        history: &dyn History,
+        use_ansi_coloring: bool,
+        cwd: &str,
+    ) -> String {
+        self.current_completion = String::new();
+
+        if let Some(hint) = self.try_rule_id_hint(line, pos, use_ansi_coloring) {
+            return hint;
+        }
+
+        // Fall back to history-based hinting
+        let result = self.history_hinter.handle(line, pos, history, use_ansi_coloring, cwd);
+        self.current_completion = self.history_hinter.complete_hint();
+        result
+    }
+
+    fn complete_hint(&self) -> String {
+        self.current_completion.clone()
+    }
+
+    fn next_hint_token(&self) -> String {
+        self.current_completion
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -855,6 +1121,19 @@ mod tests {
         Arc::new(Mutex::new(CompletionState {
             policy_names: policies.iter().map(|s| s.to_string()).collect(),
             current_policy: current.into(),
+            rule_entries: vec![],
+        }))
+    }
+
+    fn make_state_with_rules(
+        policies: &[&str],
+        current: &str,
+        rules: Vec<RuleEntry>,
+    ) -> SharedState {
+        Arc::new(Mutex::new(CompletionState {
+            policy_names: policies.iter().map(|s| s.to_string()).collect(),
+            current_policy: current.into(),
+            rule_entries: rules,
         }))
     }
 
@@ -1110,5 +1389,180 @@ mod tests {
         let v = values(&s);
         assert!(v.contains(&"read"));
         assert!(!v.contains(&"write"));
+    }
+
+    // -- Rule ID completion tests --
+
+    fn sample_rules() -> Vec<RuleEntry> {
+        vec![
+            RuleEntry {
+                id: "ab4f1c2".into(),
+                description: "Allow running \"git\" (any args)".into(),
+                policy: "main".into(),
+            },
+            RuleEntry {
+                id: "de90b73".into(),
+                description: "Deny network access to \"evil.com\"".into(),
+                policy: "main".into(),
+            },
+            RuleEntry {
+                id: "ff12345".into(),
+                description: "Allow reading files under $PWD".into(),
+                policy: "sandbox".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn remove_empty_offers_rule_ids_and_policies() {
+        let state = make_state_with_rules(&["main", "sandbox"], "main", sample_rules());
+        let mut c = ShellCompleter::new(state);
+        let s = c.complete("remove ", 7);
+        let v = values(&s);
+        assert!(v.contains(&"("), "should offer open paren");
+        assert!(v.contains(&"ab4f1c2"), "should offer rule ID from main");
+        assert!(v.contains(&"de90b73"), "should offer rule ID from main");
+        assert!(!v.contains(&"ff12345"), "should not offer rule ID from sandbox");
+        assert!(v.contains(&"main"), "should offer policy name");
+        assert!(v.contains(&"sandbox"), "should offer policy name");
+    }
+
+    #[test]
+    fn remove_partial_hex_filters_rule_ids() {
+        let state = make_state_with_rules(&["main"], "main", sample_rules());
+        let mut c = ShellCompleter::new(state);
+        let s = c.complete("remove ab", 9);
+        let v = values(&s);
+        assert!(v.contains(&"ab4f1c2"), "should match ab prefix");
+        assert!(!v.contains(&"de90b73"), "should not match de prefix");
+    }
+
+    #[test]
+    fn remove_policy_then_space_offers_ids_from_that_policy() {
+        let state = make_state_with_rules(&["main", "sandbox"], "main", sample_rules());
+        let mut c = ShellCompleter::new(state);
+        let s = c.complete("remove sandbox ", 15);
+        let v = values(&s);
+        assert!(v.contains(&"ff12345"), "should offer sandbox rule ID");
+        assert!(!v.contains(&"ab4f1c2"), "should not offer main rule ID");
+    }
+
+    #[test]
+    fn remove_policy_partial_id_filters() {
+        let state = make_state_with_rules(&["main", "sandbox"], "main", sample_rules());
+        let mut c = ShellCompleter::new(state);
+        let s = c.complete("remove sandbox ff", 17);
+        let v = values(&s);
+        assert!(v.contains(&"ff12345"), "should match ff prefix in sandbox");
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn remove_sexpr_still_works() {
+        let state = make_state_with_rules(&["main"], "main", sample_rules());
+        let mut c = ShellCompleter::new(state);
+        let s = c.complete("remove (", 8);
+        let v = values(&s);
+        assert!(v.contains(&"allow"), "should offer effects for s-expr");
+        assert!(v.contains(&"deny"));
+    }
+
+    #[test]
+    fn remove_rule_ids_have_descriptions() {
+        let state = make_state_with_rules(&["main"], "main", sample_rules());
+        let mut c = ShellCompleter::new(state);
+        let s = c.complete("remove ", 7);
+        let ab_suggestion = s.iter().find(|s| s.value == "ab4f1c2");
+        assert!(ab_suggestion.is_some(), "should have ab4f1c2 suggestion");
+        assert_eq!(
+            ab_suggestion.unwrap().description.as_deref(),
+            Some("Allow running \"git\" (any args)")
+        );
+    }
+
+    // -- Hinter tests --
+
+    #[test]
+    fn hinter_shows_id_completion_for_partial_hex() {
+        let state = make_state_with_rules(&["main"], "main", sample_rules());
+        let mut h = ShellHinter::new(state);
+        let line = "remove ab";
+        let hint = h.try_rule_id_hint(line, line.len(), false);
+        assert!(hint.is_some(), "should produce a hint");
+        let hint = hint.unwrap();
+        assert!(
+            hint.starts_with("4f1c2"),
+            "hint should start with ID remainder: {hint}"
+        );
+        assert!(
+            hint.contains("Allow running"),
+            "hint should contain description: {hint}"
+        );
+        assert_eq!(h.complete_hint(), "4f1c2", "completion should be ID remainder only");
+    }
+
+    #[test]
+    fn hinter_shows_description_for_full_id() {
+        let state = make_state_with_rules(&["main"], "main", sample_rules());
+        let mut h = ShellHinter::new(state);
+        let line = "remove ab4f1c2";
+        let hint = h.try_rule_id_hint(line, line.len(), false);
+        assert!(hint.is_some(), "should produce a hint for full ID");
+        let hint = hint.unwrap();
+        assert!(
+            hint.contains("Allow running"),
+            "hint should contain description: {hint}"
+        );
+        assert_eq!(h.complete_hint(), "", "completion should be empty for full ID");
+    }
+
+    #[test]
+    fn hinter_no_hint_for_ambiguous_prefix() {
+        let rules = vec![
+            RuleEntry {
+                id: "aaa1111".into(),
+                description: "Rule 1".into(),
+                policy: "main".into(),
+            },
+            RuleEntry {
+                id: "aaa2222".into(),
+                description: "Rule 2".into(),
+                policy: "main".into(),
+            },
+        ];
+        let state = make_state_with_rules(&["main"], "main", rules);
+        let mut h = ShellHinter::new(state);
+        let line = "remove aaa";
+        let hint = h.try_rule_id_hint(line, line.len(), false);
+        assert!(hint.is_none(), "should not hint when prefix is ambiguous");
+    }
+
+    #[test]
+    fn hinter_no_hint_for_non_hex() {
+        let state = make_state_with_rules(&["main"], "main", sample_rules());
+        let mut h = ShellHinter::new(state);
+        let line = "remove xyz";
+        let hint = h.try_rule_id_hint(line, line.len(), false);
+        assert!(hint.is_none(), "should not hint for non-hex input");
+    }
+
+    #[test]
+    fn hinter_respects_policy_prefix() {
+        let state = make_state_with_rules(&["main", "sandbox"], "main", sample_rules());
+        let mut h = ShellHinter::new(state);
+        let line = "remove sandbox ff";
+        let hint = h.try_rule_id_hint(line, line.len(), false);
+        assert!(hint.is_some(), "should hint for sandbox rule");
+        let hint = hint.unwrap();
+        assert!(hint.starts_with("12345"), "hint should complete sandbox ID: {hint}");
+    }
+
+    #[test]
+    fn hinter_no_hint_for_add_command() {
+        let state = make_state_with_rules(&["main"], "main", sample_rules());
+        let mut h = ShellHinter::new(state);
+        let line = "add ab";
+        let hint = h.try_rule_id_hint(line, line.len(), false);
+        assert!(hint.is_none(), "should not hint for add command");
     }
 }
