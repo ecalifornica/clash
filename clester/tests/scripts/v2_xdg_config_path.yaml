@@ -1,0 +1,39 @@
+meta:
+  name: v2 XDG config path resolution
+  description: >
+    Verify clash loads policy from ~/.config/clash/policy.sexpr (XDG location)
+    when no legacy ~/.clash/ directory exists. Linux only.
+  platforms: [linux]
+
+clash:
+  xdg_mode: true
+  xdg_policy_sexpr: |
+    (default deny "main")
+    (policy "main"
+      (allow (exec "git" *))
+      (allow (fs read)))
+
+steps:
+  - name: git status allowed by XDG policy
+    hook: pre-tool-use
+    tool_name: Bash
+    tool_input:
+      command: git status
+    expect:
+      decision: allow
+
+  - name: read allowed by XDG policy
+    hook: pre-tool-use
+    tool_name: Read
+    tool_input:
+      file_path: /tmp/somefile.txt
+    expect:
+      decision: allow
+
+  - name: curl denied by XDG default deny
+    hook: pre-tool-use
+    tool_name: Bash
+    tool_input:
+      command: "curl https://example.com"
+    expect:
+      decision: deny

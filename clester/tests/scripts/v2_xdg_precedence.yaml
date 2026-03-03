@@ -1,0 +1,37 @@
+meta:
+  name: v2 XDG takes precedence over legacy
+  description: >
+    When both ~/.config/clash/policy.sexpr and ~/.clash/policy.sexpr exist,
+    the XDG path wins. Linux only.
+  platforms: [linux]
+
+clash:
+  xdg_mode: true
+  # XDG location: allows git, default deny
+  xdg_policy_sexpr: |
+    (default deny "xdg")
+    (policy "xdg"
+      (allow (exec "git" *)))
+  # Legacy location: allows npm, denies git, default deny
+  policy_sexpr: |
+    (default deny "legacy")
+    (policy "legacy"
+      (allow (exec "npm" *))
+      (deny (exec "git" *)))
+
+steps:
+  - name: git status allowed — XDG policy wins over legacy
+    hook: pre-tool-use
+    tool_name: Bash
+    tool_input:
+      command: git status
+    expect:
+      decision: allow
+
+  - name: npm install denied — legacy allow not loaded
+    hook: pre-tool-use
+    tool_name: Bash
+    tool_input:
+      command: npm install
+    expect:
+      decision: deny

@@ -20,6 +20,10 @@ pub struct TestEnvironment {
 
     /// Path to the fake project directory.
     pub project_dir: PathBuf,
+
+    /// When true, the runner should not set CLASH_CONFIG_DIR/CLASH_STATE_DIR,
+    /// letting XDG Base Directory resolution happen naturally.
+    pub xdg_mode: bool,
 }
 
 impl TestEnvironment {
@@ -30,10 +34,16 @@ impl TestEnvironment {
 
         let home_dir = base.join("home");
         let project_dir = base.join("project");
+        let xdg_mode = clash.map_or(false, |c| c.xdg_mode);
 
         // Create directory structure
         std::fs::create_dir_all(home_dir.join(".claude")).context("failed to create ~/.claude")?;
-        std::fs::create_dir_all(home_dir.join(".clash")).context("failed to create ~/.clash")?;
+        // In XDG mode, only create ~/.clash/ if legacy policy data will be written there.
+        // Otherwise the existence of ~/.clash/ would trigger legacy fallback.
+        if !xdg_mode {
+            std::fs::create_dir_all(home_dir.join(".clash"))
+                .context("failed to create ~/.clash")?;
+        }
         std::fs::create_dir_all(project_dir.join(".claude")).context("failed to create .claude")?;
         // Also create a .git dir so PathResolver finds the project root
         std::fs::create_dir_all(project_dir.join(".git")).context("failed to create .git")?;
@@ -56,16 +66,37 @@ impl TestEnvironment {
 
         // Write ~/.clash/policy.yaml — raw YAML takes precedence over PolicySpec.
         if let Some(raw) = clash.and_then(|c| c.policy_raw.as_ref()) {
+            std::fs::create_dir_all(home_dir.join(".clash"))
+                .context("failed to create ~/.clash for policy.yaml")?;
             let path = home_dir.join(".clash/policy.yaml");
             std::fs::write(&path, raw).context("failed to write policy.yaml (raw)")?;
         } else if let Some(policy) = clash.and_then(|c| c.policy.as_ref()) {
+            std::fs::create_dir_all(home_dir.join(".clash"))
+                .context("failed to create ~/.clash for policy.yaml")?;
             write_policy_file(&home_dir, policy)?;
         }
 
-        // Write ~/.clash/policy.sexpr — v2 s-expression policy (user level).
+        // Write ~/.clash/policy.sexpr — v2 s-expression policy (legacy/user level).
         if let Some(sexpr) = clash.and_then(|c| c.policy_sexpr.as_ref()) {
+            std::fs::create_dir_all(home_dir.join(".clash"))
+                .context("failed to create ~/.clash for policy.sexpr")?;
             let path = home_dir.join(".clash/policy.sexpr");
             std::fs::write(&path, sexpr).context("failed to write user policy.sexpr")?;
+        }
+
+        // Write ~/.config/clash/policy.sexpr — XDG config location.
+        if let Some(sexpr) = clash.and_then(|c| c.xdg_policy_sexpr.as_ref()) {
+            let xdg_config_dir = home_dir.join(".config/clash");
+            std::fs::create_dir_all(&xdg_config_dir)
+                .context("failed to create XDG config dir")?;
+            let path = xdg_config_dir.join("policy.sexpr");
+            std::fs::write(&path, sexpr).context("failed to write XDG policy.sexpr")?;
+        }
+
+        // In XDG mode, ensure the XDG state directory exists for audit logs etc.
+        if xdg_mode {
+            std::fs::create_dir_all(home_dir.join(".local/state/clash"))
+                .context("failed to create XDG state dir")?;
         }
 
         // Write <project>/.clash/policy.sexpr — v2 s-expression policy (project level).
@@ -81,6 +112,7 @@ impl TestEnvironment {
             _temp: temp,
             home_dir,
             project_dir,
+            xdg_mode,
         })
     }
 }
@@ -247,6 +279,8 @@ mod tests {
             policy_raw: None,
             policy_sexpr: None,
             project_policy_sexpr: None,
+            xdg_mode: false,
+            xdg_policy_sexpr: None,
         };
 
         let env = TestEnvironment::setup(&config, Some(&clash)).unwrap();
@@ -265,6 +299,8 @@ mod tests {
             policy_raw: None,
             policy_sexpr: None,
             project_policy_sexpr: None,
+            xdg_mode: false,
+            xdg_policy_sexpr: None,
         };
 
         let env = TestEnvironment::setup(&config, Some(&clash)).unwrap();
@@ -286,6 +322,8 @@ mod tests {
             policy_raw: None,
             policy_sexpr: Some(user_sexpr.to_string()),
             project_policy_sexpr: Some(project_sexpr.to_string()),
+            xdg_mode: false,
+            xdg_policy_sexpr: None,
         };
 
         let env = TestEnvironment::setup(&config, Some(&clash)).unwrap();
@@ -309,6 +347,8 @@ mod tests {
             policy_raw: None,
             policy_sexpr: Some(sexpr.to_string()),
             project_policy_sexpr: None,
+            xdg_mode: false,
+            xdg_policy_sexpr: None,
         };
 
         let env = TestEnvironment::setup(&config, Some(&clash)).unwrap();

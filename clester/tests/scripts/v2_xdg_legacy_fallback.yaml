@@ -1,0 +1,32 @@
+meta:
+  name: v2 XDG legacy fallback
+  description: >
+    Verify clash falls back to ~/.clash/policy.sexpr when the XDG config
+    directory (~/.config/clash/) does not exist. Linux only.
+  platforms: [linux]
+
+clash:
+  xdg_mode: true
+  # policy_sexpr writes to ~/.clash/ (legacy location) and creates the directory
+  policy_sexpr: |
+    (default deny "main")
+    (policy "main"
+      (allow (exec "npm" *))
+      (deny (exec "git" *)))
+
+steps:
+  - name: npm install allowed by legacy policy
+    hook: pre-tool-use
+    tool_name: Bash
+    tool_input:
+      command: npm install
+    expect:
+      decision: allow
+
+  - name: git status denied by legacy policy
+    hook: pre-tool-use
+    tool_name: Bash
+    tool_input:
+      command: git status
+    expect:
+      decision: deny

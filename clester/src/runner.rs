@@ -68,23 +68,31 @@ pub fn run_step(clash_bin: &Path, env: &TestEnvironment, step: &Step) -> Result<
         .as_ref()
         .context("run_step called on a step without a hook")?;
 
-    let mut child = Command::new(clash_bin)
-        .arg("hook")
+    let mut cmd = Command::new(clash_bin);
+    cmd.arg("hook")
         .arg(hook_subcommand)
         .env("HOME", &env.home_dir)
         .current_dir(&env.project_dir)
-        // Prevent any system-level clash config from leaking in
         .env_remove("CLASH_CONFIG")
-        .env_remove("CLASH_POLICY_FILE")
+        .env_remove("CLASH_POLICY_FILE");
+
+    if env.xdg_mode {
+        // Let XDG Base Directory resolution happen naturally via HOME
+        cmd.env_remove("CLASH_CONFIG_DIR")
+            .env_remove("CLASH_STATE_DIR");
+    } else {
         // Point config/state at the test's ~/.clash/ directory
-        .env("CLASH_CONFIG_DIR", env.home_dir.join(".clash"))
-        .env("CLASH_STATE_DIR", env.home_dir.join(".clash"))
-        // Prevent XDG env vars from leaking into test subprocess
-        .env_remove("XDG_CONFIG_HOME")
+        cmd.env("CLASH_CONFIG_DIR", env.home_dir.join(".clash"))
+            .env("CLASH_STATE_DIR", env.home_dir.join(".clash"));
+    }
+
+    cmd.env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_STATE_HOME")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
         .spawn()
         .with_context(|| format!("failed to spawn clash binary: {}", clash_bin.display()))?;
 
@@ -126,19 +134,28 @@ pub fn run_command(clash_bin: &Path, env: &TestEnvironment, command: &str) -> Re
         bail!("empty command");
     }
 
-    let output = Command::new(clash_bin)
-        .args(&args)
+    let mut cmd = Command::new(clash_bin);
+    cmd.args(&args)
         .env("HOME", &env.home_dir)
         .current_dir(&env.project_dir)
         .env_remove("CLASH_CONFIG")
-        .env_remove("CLASH_POLICY_FILE")
-        .env("CLASH_CONFIG_DIR", env.home_dir.join(".clash"))
-        .env("CLASH_STATE_DIR", env.home_dir.join(".clash"))
-        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("CLASH_POLICY_FILE");
+
+    if env.xdg_mode {
+        cmd.env_remove("CLASH_CONFIG_DIR")
+            .env_remove("CLASH_STATE_DIR");
+    } else {
+        cmd.env("CLASH_CONFIG_DIR", env.home_dir.join(".clash"))
+            .env("CLASH_STATE_DIR", env.home_dir.join(".clash"));
+    }
+
+    cmd.env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_STATE_HOME")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let output = cmd
         .spawn()
         .with_context(|| format!("failed to spawn clash command: clash {}", command))?
         .wait_with_output()

@@ -123,6 +123,15 @@ fn cmd_run(path: &Path, verbose: bool, clash_bin: Option<&Path>) -> Result<bool>
 
         eprintln!("--- {} ({}) ---", script.meta.name, script_path.display());
 
+        // Skip tests that don't match the current platform
+        if let Some(ref platforms) = script.meta.platforms {
+            let current_os = std::env::consts::OS;
+            if !platforms.iter().any(|p| p == current_os) {
+                eprintln!("  SKIP (platform: {}, requires: {:?})\n", current_os, platforms);
+                continue;
+            }
+        }
+
         let env = TestEnvironment::setup(&script.settings, script.clash.as_ref())
             .context("failed to set up test environment")?;
 

@@ -47,6 +47,16 @@ pub struct ClashConfig {
     /// When present alongside `policy_sexpr`, enables multi-level policy testing.
     #[serde(default)]
     pub project_policy_sexpr: Option<String>,
+
+    /// When true, the runner skips setting CLASH_CONFIG_DIR/CLASH_STATE_DIR,
+    /// letting XDG Base Directory resolution happen naturally via HOME.
+    #[serde(default)]
+    pub xdg_mode: bool,
+
+    /// Raw s-expression string written to $HOME/.config/clash/policy.sexpr (XDG location).
+    /// Use with `xdg_mode: true` to test XDG config path resolution.
+    #[serde(default)]
+    pub xdg_policy_sexpr: Option<String>,
 }
 
 /// Policy document specification for ~/.clash/policy.yaml.
@@ -123,6 +133,11 @@ pub struct Meta {
     #[serde(default)]
     #[allow(dead_code)]
     pub description: Option<String>,
+
+    /// Optional platform filter. If set, the test only runs on these OSes
+    /// (e.g., `["linux"]`). Values match `std::env::consts::OS`.
+    #[serde(default)]
+    pub platforms: Option<Vec<String>>,
 }
 
 /// Settings configuration at multiple levels.
