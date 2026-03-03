@@ -53,7 +53,7 @@ pub fn run(policy_path: Option<String>, args: Vec<String>) -> Result<()> {
     });
 
     // Write hooks to a temp file that Claude Code can use
-    let hooks_dir = ClashSettings::settings_dir()?.join("hooks");
+    let hooks_dir = ClashSettings::state_dir()?.join("hooks");
     std::fs::create_dir_all(&hooks_dir)?;
     let hooks_file = hooks_dir.join("hooks.json");
     std::fs::write(&hooks_file, serde_json::to_string_pretty(&hooks_json)?)?;

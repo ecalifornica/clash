@@ -42,7 +42,7 @@ fn prompt_scope() -> Result<&'static str> {
             "{}  {} {}",
             style::bold("User"),
             style::dim("(global)"),
-            style::dim("— default policy for all your projects (~/.clash/)"),
+            style::dim("— default policy for all your projects (~/.config/clash/)"),
         ),
         format!(
             "{}  {} {}",
@@ -66,7 +66,7 @@ fn prompt_scope() -> Result<&'static str> {
     }
 }
 
-/// Initialize or reconfigure the user-level policy at `~/.clash/policy.sexpr`.
+/// Initialize or reconfigure the user-level policy.
 ///
 /// - If a sexp policy already exists, offers to reconfigure via the wizard.
 /// - If only a legacy YAML policy exists, migrates it via `claude -p`.
@@ -130,7 +130,7 @@ fn run_init_user(no_bypass: Option<bool>) -> Result<()> {
     }
 
     // Fresh install — write default policy.
-    std::fs::create_dir_all(ClashSettings::settings_dir()?)?;
+    std::fs::create_dir_all(ClashSettings::config_dir()?)?;
     std::fs::write(&sexpr_path, DEFAULT_POLICY)?;
 
     // Install the Claude Code plugin from GitHub.

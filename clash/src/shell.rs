@@ -1153,7 +1153,7 @@ impl ShellSession {
         let edit_mode = Box::new(Emacs::new(keybindings));
 
         // History
-        let history_path = crate::settings::ClashSettings::settings_dir()
+        let history_path = crate::settings::ClashSettings::state_dir()
             .map(|d| d.join("shell_history"))
             .ok();
         let history: Option<Box<FileBackedHistory>> =

@@ -1,6 +1,6 @@
 //! Structured audit logging for policy decisions.
 //!
-//! Writes JSON Lines entries to `~/.clash/audit.jsonl` (configurable via settings).
+//! Writes JSON Lines entries to `$XDG_STATE_HOME/clash/audit.jsonl` (configurable via settings).
 //! Each entry records the tool invocation and the policy decision.
 
 use std::fs::OpenOptions;
@@ -42,7 +42,7 @@ pub struct AuditConfig {
     /// Whether audit logging is enabled.
     #[serde(default)]
     pub enabled: bool,
-    /// Path to the audit log file. Defaults to `~/.clash/audit.jsonl`.
+    /// Path to the audit log file. Defaults to `$XDG_STATE_HOME/clash/audit.jsonl`.
     #[serde(default)]
     pub path: Option<String>,
 }
@@ -53,9 +53,9 @@ impl AuditConfig {
         if let Some(ref path) = self.path {
             PathBuf::from(path)
         } else {
-            dirs::home_dir()
-                .map(|h| h.join(".clash").join("audit.jsonl"))
-                .unwrap_or_else(|| PathBuf::from("audit.jsonl"))
+            crate::settings::ClashSettings::state_dir()
+                .map(|d| d.join("audit.jsonl"))
+                .unwrap_or_else(|_| PathBuf::from("audit.jsonl"))
         }
     }
 }

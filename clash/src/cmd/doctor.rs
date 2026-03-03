@@ -397,18 +397,35 @@ fn check_sandbox_support() -> CheckResult {
     }
 }
 
-/// Check that the user-level settings dir (~/.clash/) exists.
+/// Check that the user-level config and state directories exist.
 ///
 /// Not used as a top-level check but available as a helper.
 #[allow(dead_code)]
 fn check_settings_dir() -> CheckResult {
-    match ClashSettings::settings_dir() {
-        Ok(dir) if dir.exists() => CheckResult::Pass(format!("Found at {}", dir.display())),
-        Ok(dir) => CheckResult::Fail(format!(
-            "{} does not exist. Run `clash init` to create it.",
-            dir.display()
+    let config = ClashSettings::config_dir();
+    let state = ClashSettings::state_dir();
+    match (config, state) {
+        (Ok(c), Ok(s)) if c.exists() && s.exists() => CheckResult::Pass(format!(
+            "config: {}, state: {}",
+            c.display(),
+            s.display()
         )),
-        Err(e) => CheckResult::Fail(format!("Cannot determine settings directory: {}", e)),
+        (Ok(c), Ok(s)) => {
+            let mut missing = Vec::new();
+            if !c.exists() {
+                missing.push(format!("config dir {} does not exist", c.display()));
+            }
+            if !s.exists() {
+                missing.push(format!("state dir {} does not exist", s.display()));
+            }
+            CheckResult::Fail(format!(
+                "{}. Run `clash init` to create.",
+                missing.join("; ")
+            ))
+        }
+        (Err(e), _) | (_, Err(e)) => {
+            CheckResult::Fail(format!("Cannot determine settings directory: {}", e))
+        }
     }
 }
 

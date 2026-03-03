@@ -9,9 +9,9 @@ use tracing_subscriber::prelude::*;
 use crate::settings::ClashSettings;
 
 pub fn init_tracing() {
-    // Log path: CLASH_LOG env var > ~/.clash/clash.log > stderr fallback.
+    // Log path: CLASH_LOG env var > state_dir/clash.log > stderr fallback.
     let log_path = std::env::var("CLASH_LOG").ok().unwrap_or_else(|| {
-        ClashSettings::settings_dir()
+        ClashSettings::state_dir()
             .map(|d| d.join("clash.log"))
             .unwrap_or_else(|_| std::path::PathBuf::from("clash.log"))
             .to_string_lossy()

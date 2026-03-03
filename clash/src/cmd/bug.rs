@@ -70,7 +70,7 @@ pub fn run(
 /// Read the last `n` lines from the clash log file.
 fn read_recent_logs(n: usize) -> Result<String> {
     let log_path = std::env::var("CLASH_LOG").ok().unwrap_or_else(|| {
-        ClashSettings::settings_dir()
+        ClashSettings::state_dir()
             .map(|d| d.join("clash.log"))
             .unwrap_or_else(|_| std::path::PathBuf::from("clash.log"))
             .to_string_lossy()
