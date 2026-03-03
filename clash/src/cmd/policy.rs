@@ -483,6 +483,7 @@ fn handle_list(json: bool) -> Result<()> {
                 let origin = r.origin_policy.as_deref().unwrap_or(&tree.policy_name);
                 let builtin = origin.starts_with("__internal_");
                 let mut entry = serde_json::json!({
+                    "id": r.source.id(),
                     "effect": format!("{}", r.effect),
                     "rule": r.source.to_string(),
                     "origin": origin,
@@ -524,7 +525,7 @@ fn handle_list(json: bool) -> Result<()> {
             } else {
                 String::new()
             };
-            println!("  {}{}", tag, rule.source);
+            println!("  {} {}{}", style::dim(&rule.source.id()), tag, rule.source);
         }
     }
     Ok(())
