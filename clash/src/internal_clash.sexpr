@@ -1,6 +1,8 @@
 ; Internal: Clash self-management
 (policy "__internal_clash__"
-  ; Read clash config
+  ; Read clash config (XDG and legacy paths)
+  (allow (fs read (subpath (join (env HOME) "/.config/clash"))))
+  (allow (fs read (subpath (join (env HOME) "/.local/state/clash"))))
   (allow (fs read (subpath (join (env HOME) "/.clash"))))
 
   ; Bug reporting (needs network to reach Linear API)
