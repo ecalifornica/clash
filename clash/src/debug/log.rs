@@ -64,9 +64,9 @@ pub fn read_session_log(session_id: &str) -> Result<Vec<AuditLogEntry>> {
 
 /// Read the global audit log.
 pub fn read_global_log() -> Result<Vec<AuditLogEntry>> {
-    let path = dirs::home_dir()
-        .map(|h| h.join(".clash").join("audit.jsonl"))
-        .unwrap_or_else(|| std::path::PathBuf::from("audit.jsonl"));
+    let path = crate::settings::ClashSettings::state_dir()
+        .map(|d| d.join("audit.jsonl"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("audit.jsonl"));
     if !path.exists() {
         anyhow::bail!(
             "no global audit log found at {} (enable audit logging in policy.yaml)",
